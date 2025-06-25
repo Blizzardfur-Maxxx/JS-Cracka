@@ -324,11 +324,16 @@
         if (resp.ok) {
           script.__content = await resp.text();
         }
-      } catch {}
+      } catch (e) {
+        console.warn('Failed to refresh external script:', e);
+      }
+    } else {
+      script.__content = script.textContent;
     }
     editor.value = script.__content;
     currentVars = extractEditableVariables(script.__content, boolNumStrCheckbox.checked);
     updateVarsPanel(currentVars, searchInput.value);
+
     alert('Scripts refreshed successfully!');
   });
 
