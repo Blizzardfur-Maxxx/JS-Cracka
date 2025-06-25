@@ -206,135 +206,98 @@
     return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   }
 
-  applyBtn.addEventListener('click', () => {
-    const idx = parseInt(list.value);
-    if (isNaN(idx)) return;
+  function escapeForCode(str) {
+    // Escapes single quotes and backslashes, safest for code strings
+    return str.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+  }
 
+  function replaceVarInCode(code, varName, newVal) {
+    // Regex for matching variable declarations with word boundaries
+    const regex = new RegExp(
+      `(export\\s+)?(const|let|var)\\s+\\b${escapeRegex(varName)}\\b\\s*=\\s*([^;\\n]+)`,
+      'g'
+    );
+    return code.replace(regex, (match, exportPart, declType, oldVal) => {
+      // Replace with same export/declType + newVal properly escaped if needed
+      if (/^['"]/.test(newVal) || /^(true|false|\d+(\.\d+)?|0x[a-f0-9]+)$/i.test(newVal)) {
+        // Assume newVal is safe literal (boolean, number, hex, or quoted string)
+        return `${exportPart || ''}${declType} ${varName} = ${newVal}`;
+      } else {
+        // Otherwise, quote it safely
+        return `${exportPart || ''}${declType} ${varName} = '${escapeForCode(newVal)}'`;
+      }
+    });
+  }
+
+  function updateScriptTag(index, newCode) {
+    const oldScript = scripts[index];
+    const newScript = document.createElement('script');
+    newScript.type = oldScript.type || 'text/javascript';
+
+    if (oldScript.src) {
+      // External script - reload with cache busting param
+      const separator = oldScript.src.includes('?') ? '&' : '?';
+      newScript.src = oldScript.src + separator + '_cb=' + Date.now();
+      newScript.async = oldScript.async;
+      newScript.defer = oldScript.defer;
+    } else {
+      // Inline script - inject as is, no IIFE wrapping
+      newScript.textContent = newCode;
+    }
+
+    oldScript.parentNode.insertBefore(newScript, oldScript.nextSibling);
+    oldScript.remove();
+    scripts[index] = newScript; // Update reference
+    newScript.__content = newCode;
+  }
+
+  applyBtn.addEventListener('click', () => {
+    const index = parseInt(list.value);
+    if (index < 0) return;
     let code = editor.value;
     const inputs = Array.from(varsPanel.querySelectorAll('input'));
-
-    const blacklist = [
-      'get', 'set', 'function', 'class', 'delete', 'typeof', 'instanceof',
-      'constructor', '__proto__', 'hasOwnProperty', 'prototype', 'toString'
-    ];
-
-    for (const input of inputs) {
+    inputs.forEach(input => {
       const varName = input.getAttribute('data-varname');
-      if (!varName || blacklist.includes(varName)) {
-        console.log(`Skipping reserved variable: ${varName}`);
-        continue;
+      const newVal = input.value.trim();
+      if (varName && newVal !== undefined) {
+        code = replaceVarInCode(code, varName, newVal);
       }
-
-      let newVal = input.value.trim();
-
-      if (
-        !/^(['"]).*\1$/.test(newVal) && 
-        isNaN(newVal) &&
-        newVal !== 'true' &&
-        newVal !== 'false'
-      ) {
-        newVal = `'${newVal.replace(/'/g, "\\'")}'`;
-      }
-
-      const regex = new RegExp(
-        `(export\\s+)?(const|let|var)\\s+${escapeRegex(varName)}\\s*=\\s*([^;\\n]+)`,
-        'g'
-      );
-
-      code = code.replace(regex, (match, exportPart, declPart, oldVal) => {
-        const exportStr = exportPart || '';
-        const declStr = declPart ? declPart + ' ' : '';
-        return `${exportStr}${declStr}${varName} = ${newVal}`;
-      });
-    }
+    });
 
     try {
-      new Function(code);
-    } catch (e) {
-      alert('Syntax error in updated code: ' + e.message);
-      console.error(e);
-      return;
-    }
-
-    try {
-      const oldScript = scripts[idx];
-      const newScript = document.createElement('script');
-
-      if (oldScript.src) {
-        newScript.src = oldScript.src;
-      } else {
-        newScript.textContent = `(function(){\n${code}\n})();`;
-      }
-
-      oldScript.parentNode.insertBefore(newScript, oldScript.nextSibling);
-      oldScript.remove();
-
-
-      scripts[idx] = newScript;
-      scripts[idx].__content = code;
-      editor.value = code;
+      updateScriptTag(index, code);
+      scripts[index].__content = code;
       currentVars = extractEditableVariables(code, boolNumStrCheckbox.checked);
-      updateVarsPanel(currentVars, searchInput.value);
+      updateVarsPanel(currentVars);
       alert('Script updated successfully!');
     } catch (e) {
-      console.error('Script replacement failed:', e);
-      alert('Failed to inject new script. See console for error.');
+      alert('Failed to update script: ' + e.message);
     }
   });
 
   list.addEventListener('change', () => {
-    const idx = parseInt(list.value);
-    if (isNaN(idx)) return;
-    const content = scripts[idx].__content;
-    editor.value = content;
-    currentVars = extractEditableVariables(content, boolNumStrCheckbox.checked);
-    updateVarsPanel(currentVars, searchInput.value);
+    const index = parseInt(list.value);
+    if (index >= 0) loadEditor(index);
+  });
+
+  refreshBtn.addEventListener('click', () => {
+    location.reload();
   });
 
   minimizeBtn.addEventListener('click', () => {
-    const isMinimized = sidebar.style.height === '40px';
-
-    if (isMinimized) {
+    if (sidebar.style.height === '40px') {
       sidebar.style.height = '85vh';
       minimizeBtn.innerText = '−';
-      list.style.display = 'block';            // show script selector
+      list.style.display = 'block';
       container.style.display = 'flex';
-      boolNumStrCheckboxLabel.style.display = 'flex';
-      searchInput.style.display = 'block';
       btnContainer.style.display = 'flex';
     } else {
       sidebar.style.height = '40px';
       minimizeBtn.innerText = '+';
-      list.style.display = 'none';             // hide script selector
+      list.style.display = 'none';
       container.style.display = 'none';
-      boolNumStrCheckboxLabel.style.display = 'none';
-      searchInput.style.display = 'none';
       btnContainer.style.display = 'none';
     }
-  });
-
-  refreshBtn.addEventListener('click', async () => {
-    const idx = parseInt(list.value);
-    if (isNaN(idx)) return;
-
-    const script = scripts[idx];
-    if (script.src) {
-      try {
-        const resp = await fetch(script.src);
-        if (resp.ok) {
-          script.__content = await resp.text();
-        }
-      } catch (e) {
-        console.warn('Failed to refresh external script:', e);
-      }
-    } else {
-      script.__content = script.textContent;
-    }
-    editor.value = script.__content;
-    currentVars = extractEditableVariables(script.__content, boolNumStrCheckbox.checked);
-    updateVarsPanel(currentVars, searchInput.value);
-
-    alert('Scripts refreshed successfully!');
   });
 
   await populateList();
