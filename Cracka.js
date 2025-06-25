@@ -207,23 +207,18 @@
   }
 
   function escapeForCode(str) {
-    // Escapes single quotes and backslashes, safest for code strings
     return str.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
   }
 
   function replaceVarInCode(code, varName, newVal) {
-    // Regex for matching variable declarations with word boundaries
     const regex = new RegExp(
       `(export\\s+)?(const|let|var)\\s+\\b${escapeRegex(varName)}\\b\\s*=\\s*([^;\\n]+)`,
       'g'
     );
     return code.replace(regex, (match, exportPart, declType, oldVal) => {
-      // Replace with same export/declType + newVal properly escaped if needed
       if (/^['"]/.test(newVal) || /^(true|false|\d+(\.\d+)?|0x[a-f0-9]+)$/i.test(newVal)) {
-        // Assume newVal is safe literal (boolean, number, hex, or quoted string)
         return `${exportPart || ''}${declType} ${varName} = ${newVal}`;
       } else {
-        // Otherwise, quote it safely
         return `${exportPart || ''}${declType} ${varName} = '${escapeForCode(newVal)}'`;
       }
     });
